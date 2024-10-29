@@ -1,0 +1,62 @@
+<%- |
+      String $ha_servers,
+      Integer $server_id
+| -%>
+import subprocess
+import sys
+import os
+import json
+import time
+
+def get_onhv_servers():
+    result = subprocess.run(["onezone", "show", "0", "--json"], capture_output=True, text=True)
+
+    if result.returncode != 0:
+        raise Exception("error retrieving onezone information: {}".format(result.stderr))
+
+    json_results = json.loads(result.stdout)
+    onhv_servers = []
+
+    if "SERVER" in json_results["ZONE"]["SERVER_POOL"]:
+        if isinstance(json_results["ZONE"]["SERVER_POOL"]["SERVER"], dict):
+            onhv_servers = [json_results["ZONE"]["SERVER_POOL"]["SERVER"]]
+        else:
+            onhv_servers = json_results["ZONE"]["SERVER_POOL"]["SERVER"]
+
+    return onhv_servers
+
+if __name__ == "__main__":
+    given_servers = json.loads('<%= $ha_servers %>')
+    onhv_servers = get_onhv_servers()
+    given_srv_id = "<%= $server_id %>"
+
+    if len(onhv_servers) == 0 and given_srv_id == "0":
+        sys.exit(0)
+
+    for srv in onhv_servers:
+        if srv["STATE"] == "-":
+            sys.exit(1)
+
+    current_state_id = ""
+
+    for onhv_srv in onhv_servers:
+        if onhv_srv["ID"] == given_srv_id:
+            current_state_id = onhv_srv["STATE"]
+
+    add_new_server = False
+
+    for srv_id, srv_ip in given_servers.items():
+        found = False
+
+        for onhv_srv in onhv_servers:
+            if onhv_srv["ID"] == srv_id:
+                found = True
+
+        if not found:
+            add_new_server = True
+            break
+
+    if add_new_server and current_state_id == "3":
+        sys.exit(0)
+
+    sys.exit(1)

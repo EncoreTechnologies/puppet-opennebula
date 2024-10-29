@@ -1,0 +1,32 @@
+<%- |
+      String $host_attributes_tmpl_dir,
+      Integer $election_timeout,
+| -%>
+import subprocess
+import sys
+import os
+import time
+
+def execute_onehost_cmd():
+    subprocess.run(["onehost", "update", sys.argv[1], "-a", os.path.join("<%= $host_attributes_tmpl_dir %>", sys.argv[1] + "_attributes.txt")], capture_output=True, text=True)
+
+def cmd_timeout(error):
+    start_time = time.time()
+
+    while True:
+        if time.time() - start_time > <%= $election_timeout %>:
+            raise Exception(error)
+
+        try:
+            execute_onehost_cmd()
+            break
+        except:
+            pass
+
+        time.sleep(3)
+
+if __name__ == "__main__":
+    try:
+        execute_onehost_cmd()
+    except Exception as e:
+        cmd_timeout(e)

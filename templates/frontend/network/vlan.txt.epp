@@ -1,0 +1,34 @@
+<%- | Integer $vlan_id,
+      String $vlan_name,
+      String $ip_range,
+      String $gateway,
+      String $dns,
+      Boolean $provisioning_enabled,
+      String $zone,
+      String $ipam,
+| -%>
+NAME="<%= $vlan_name %>"
+VN_MAD="802.1Q"
+PHYDEV="data-bond0"
+BRIDGE="one-br0-vlan<%= $vlan_id %>"
+BRIDGE_TYPE="linux"
+OUTER_VLAN_ID=""
+SECURITY_GROUPS="0"
+VLAN_ID="<%= $vlan_id %>"
+DNS="<%= $dns %>"
+IP_RANGE="<%= $ip_range %>"
+GATEWAY="<%= $gateway %>"
+PROVISIONING_ENABLED="<%= $provisioning_enabled %>"
+ZONE="<%= $zone %>"
+IPAM="<%= $ipam %>"
+# Based on the python network script that runs against this template in a puppet run,
+# any key that has an array value must be in the exact format as the one below
+# where we have "<key>=[" on one line, all the key/values on their own seperate line
+# and then "]" on its own line
+#
+# This is for parsing reasons when comparing against an existing vlan to determine if
+# we should update or not
+AR=[
+    TYPE="ETHER",
+    SIZE="254"
+]

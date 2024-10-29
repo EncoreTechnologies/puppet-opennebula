@@ -1,0 +1,61 @@
+<%- |
+  String $hostname,
+  String $nginx_cert,
+  String $nginx_key,
+| -%>
+
+# Config file sourced from: https://docs.opennebula.io/6.8/installation_and_configuration/large-scale_deployment/sunstone_for_large_deployments.html#nginx
+# No squealing.
+# server_tokens off;
+
+#### OpenNebula Sunstone upstream
+upstream sunstone  {
+        server 127.0.0.1:9869;
+}
+
+#### OpenNebula FireEdge upstream
+upstream fire-edge {
+        server 127.0.0.1:2616;
+}
+
+#### cloudserver.org HTTP virtual host
+server {
+        listen 80;
+        server_name <%= $hostname %>;
+
+        ### Permanent redirect to HTTPS (optional)
+        return 301 https://$server_name:443;
+}
+
+#### cloudserver.org HTTPS virtual host
+server {
+        listen 443 ssl;
+        server_name <%= $hostname %>;
+
+        ### SSL Parameters
+        #ssl on;
+        ssl_certificate           <%= $nginx_cert %>;
+        ssl_certificate_key       <%= $nginx_key %>;
+
+        ### Proxy requests to upstream
+        location / {
+                proxy_pass              http://sunstone;
+                proxy_set_header        X-Real-IP $remote_addr;
+                proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header        X-Forwarded-Proto $scheme;
+        }
+
+        location /fireedge {
+                proxy_pass http://fire-edge/fireedge;
+                proxy_redirect off;
+                log_not_found off;
+                proxy_buffering off;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header Host $http_host;
+                proxy_set_header X-Forwarded-FOR $proxy_add_x_forwarded_for;
+                access_log off;
+        }
+}

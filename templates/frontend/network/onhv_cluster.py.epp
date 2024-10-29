@@ -1,0 +1,73 @@
+<%- |
+      Integer $election_timeout,
+      String $cluster_groups
+| -%>
+import subprocess
+import sys
+import os
+import time
+import json
+
+TIMEOUT = 3
+
+def execute_cluster_cmd():
+    cluster_groups = json.loads('<%= $cluster_groups %>')
+    given_clusters = set()
+
+    for k, cluster_names in cluster_groups.items():
+        for cluster_name in cluster_names:
+            given_clusters.add(cluster_name)
+
+    result = subprocess.run(["onecluster", "list", "--json"], capture_output=True, text=True)
+
+    if result.returncode != 0:
+        raise Exception(result.stderr)
+
+    cluster_resp = json.loads(result.stdout)["CLUSTER_POOL"]["CLUSTER"]
+    clusters = None
+
+    if isinstance(cluster_resp, dict):
+        clusters = [cluster_resp]
+    else:
+        clusters = cluster_resp
+
+    exit_code = 1
+
+    for given_cluster in given_clusters:
+        found = False
+
+        for cluster in clusters:
+            if given_cluster == cluster["NAME"]:
+                found = True
+
+        if not found:
+            if sys.argv[1] == "check":
+                return 0
+            else:
+                exit_code = 0
+                result = subprocess.run(["onecluster", "create", given_cluster], capture_output=True, text=True)
+
+                if result.returncode != 0:
+                    raise Exception(result.stderr)
+
+    return exit_code
+def cluster_timeout(error):
+    start_time = time.time()
+
+    while True:
+        if time.time() - start_time > <%= $election_timeout %>:
+            raise Exception(error)
+
+        try:
+            execute_cluster_cmd(error)
+            break
+        except:
+            pass
+
+        time.sleep(3)
+
+if __name__ == "__main__":
+    try:
+        sys.exit(execute_cluster_cmd())
+    except Exception as e:
+        sys.exit(cluster_timeout(e))

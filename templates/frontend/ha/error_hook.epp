@@ -1,0 +1,12 @@
+<%- |
+      Integer $monitoring_interval,
+| -%>
+# THIS FILE IS MANAGED BY PUPPET. EDIT AT YOUR OWN PERIL!
+ARGUMENTS = "$TEMPLATE -m -p <%= $monitoring_interval %>"
+ARGUMENTS_STDIN = "yes"
+COMMAND   = "ft/host_error.rb"
+NAME      = "host_error"
+STATE     = "ERROR"
+REMOTE    = "no"
+RESOURCE  = HOST
+TYPE      = state

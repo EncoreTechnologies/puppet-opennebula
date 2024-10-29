@@ -1,0 +1,205 @@
+<%- |
+      String $vlan_tmpl_dir,
+      Integer $election_timeout,
+      String $default_cluster_group,
+      String $cluster_groups
+| -%>
+import subprocess
+import sys
+import os
+import time
+import json
+
+def get_file_dict(file):
+    in_array = False
+    file_dict = {}
+    array_dict = {}
+    array_key = None
+
+    for line in file:
+        # Strip whitespace and ignore empty lines or comments
+        line = line.strip()
+
+        # If line starts with comment or is empty, continue loop
+        if line.startswith("#") or line == '':
+            continue
+
+        # If line starts with ending bracket, then this is the ending of
+        # an array value, so grab "array_dict" and all its stored values
+        # and assign it to the key for the value
+        if line == ']':
+            in_array = False
+            file_dict[array_key] = array_dict
+            array_dict = {}
+            array_key = None
+            continue
+
+        # Split the line into key and value
+        key, value = line.split('=', 1)
+
+        # If line starts with a start bracket, then this is the start
+        # of an array value so grab the key name and continue loop
+        if value.strip() == '[':
+            in_array = True
+            array_key = key.strip()
+            continue
+
+        # If currently looping within array value, strip the value of any
+        # white space, commas and quotes
+        #
+        # Else simply strip white space and quotes
+        if in_array:
+            stripped_value = value.strip()
+            if stripped_value[len(stripped_value)-1] == ",":
+                stripped_value = stripped_value[:len(stripped_value)-1]
+
+            stripped_value = stripped_value.strip('\'"')
+            array_dict[key.strip()] = stripped_value
+        else:
+            file_dict[key.strip()] = value.strip().strip('\'"')
+
+    return file_dict
+
+
+def execute_vnet_cmd():
+    result = subprocess.run(["onevnet", "show", sys.argv[1], "--json"], capture_output=True, text=True)
+    mode = "create"
+    vnet_template = None
+
+    if result.returncode != 0:
+        if "not found" not in result.stderr:
+            return result.stderr
+    else:
+        mode = "update"
+        vnet_template = json.loads(result.stdout)["VNET"]["TEMPLATE"]
+
+    process = None
+    content = None
+    fp = open(os.path.join("<%= $vlan_tmpl_dir %>", sys.argv[1] + ".txt"), "r")
+
+    # If given network is not found, create else update
+    if mode == "create":
+        process = subprocess.Popen(["onevnet", "create"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        content = fp.read()
+        fp.close()
+    else:
+        file_dict = get_file_dict(fp)
+
+        for k, v in vnet_template.items():
+            if k not in file_dict:
+                file_dict[k] = v
+
+        tmp_vlan_path = os.path.join("/opt", "encore", "tmp", sys.argv[1] + ".txt")
+        fp = open(tmp_vlan_path, "w")
+
+        for k, v in file_dict.items():
+            if isinstance(v, str):
+                fp.write('{}="{}"\n'.format(k, v))
+            elif isinstance(v, dict):
+                fp.write("{}=[\n".format(k))
+
+                dict_len = len(v)
+                counter = 0
+
+                for arr_key, arr_val in v.items():
+                    str_format = ""
+
+                    if counter == dict_len - 1:
+                        str_format = '\t{}="{}"\n'
+                    else:
+                        str_format = '\t{}="{}",\n'
+
+                    fp.write(str_format.format(arr_key, arr_val))
+                    counter = counter + 1
+
+                fp.write("]\n")
+            else:
+                raise Exception("could not parse vlan file")
+
+        fp.close()
+        fp = open(tmp_vlan_path, "r")
+        content = fp.read()
+        fp.close()
+        os.remove(tmp_vlan_path)
+        process = subprocess.Popen(["onevnet", "update", sys.argv[1]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    output, error = process.communicate(input=content)
+
+    if process.returncode != 0:
+        raise Exception(error.strip())
+
+def execute_cluster_cmd():
+    given_dict = json.loads(sys.argv[2])
+    cluster_groups = json.loads('<%= $cluster_groups %>')
+    given_clusters = None
+
+    if "clusters" in given_dict:
+        given_clusters = given_dict["clusters"]
+    elif "cluster_group" in given_dict:
+        given_clusters = cluster_groups[given_dict["cluster_group"]]
+    else:
+        given_clusters = cluster_groups["<%= $default_cluster_group %>"]
+
+    result = subprocess.run(["onevnet", "show", sys.argv[1], "--json"], capture_output=True, text=True)
+
+    if result.returncode != 0:
+       raise Exception(result.stderr)
+
+    cluster_id_resp = json.loads(result.stdout)["VNET"]["CLUSTERS"]["ID"]
+    cluster_ids = None
+
+    if isinstance(cluster_id_resp, str):
+        cluster_ids = [cluster_id_resp]
+    else:
+        cluster_ids = cluster_id_resp
+
+    # Add given clusters to current network
+    for cluster_name in given_clusters:
+        result = subprocess.run(["onecluster", "addvnet", cluster_name, sys.argv[1]], capture_output=True, text=True)
+
+        if result.returncode != 0:
+            raise Exception(result.stderr)
+
+    # Loop through cluster ids from server and compare against given cluster names
+    # If any don't match, remove cluster from network
+    for cluster_id in cluster_ids:
+        result = subprocess.run(["onecluster", "show", cluster_id, "--json"], capture_output=True, text=True)
+
+        if result.returncode != 0:
+            raise Exception(result.stderr)
+
+        cluster_name = json.loads(result.stdout)["CLUSTER"]["NAME"]
+        found = False
+
+        for given_cluster in given_clusters:
+            if given_cluster == cluster_name:
+                found = True
+
+        if not found:
+            result = subprocess.run(["onecluster", "delvnet", cluster_id, sys.argv[1]], capture_output=True, text=True)
+
+            if result.returncode != 0:
+                raise Exception(result.stderr)
+
+def cmd_timeout(error):
+    start_time = time.time()
+
+    while True:
+        if time.time() - start_time > <%= $election_timeout %>:
+            raise Exception(error)
+
+        try:
+            execute_vnet_cmd()
+            break
+        except:
+            pass
+
+        time.sleep(3)
+
+if __name__ == "__main__":
+    try:
+        execute_vnet_cmd()
+    except Exception as e:
+        cmd_timeout(e)
+
+    sys.exit(execute_cluster_cmd())

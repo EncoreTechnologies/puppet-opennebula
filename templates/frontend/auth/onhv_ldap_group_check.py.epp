@@ -1,0 +1,35 @@
+<%- |
+  String $ldap_groups,
+  String $ldap_file
+| -%>
+import subprocess
+import sys
+import os
+import json
+import yaml
+import pwd
+import grp
+
+if __name__ == "__main__":
+    with open('<%= $ldap_file %>', 'r') as file:
+        try:
+            file_groups = yaml.safe_load(file)
+            found = False
+            ldap_groups = json.loads('<%= $ldap_groups %>')
+
+            for onhv_group, ldap_group in ldap_groups.items():
+                if ldap_group not in file_groups:
+                    sys.exit(1)
+
+                process_result = subprocess.run(["onegroup", "show", onhv_group, "--json"], capture_output=True, text=True)
+
+                if process_result.returncode == 0:
+                    json_result = json.loads(process_result.stdout)
+
+                    if json_result['GROUP']['ID'] != file_groups[ldap_group]:
+                        sys.exit(1)
+                else:
+                    raise Exception("error querying for onhv group '{}'; {}".format(onhv_group, process_result.stderr))
+
+        except yaml.YAMLError as e:
+            raise Exception(f"error reading ldap file: {e}")

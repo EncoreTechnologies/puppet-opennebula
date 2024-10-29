@@ -1,0 +1,48 @@
+<%- |
+      Integer $election_timeout,
+| -%>
+
+import subprocess
+import sys
+import time
+import json
+
+def execute_onehost_cmd():
+    result = subprocess.run(["onehost", "show", sys.argv[1], "--json"], capture_output=True, text=True)
+
+    if result.returncode != 0:
+        raise Exception(result.stderr)
+    else:
+        onehost_template = json.loads(result.stdout)["HOST"]["TEMPLATE"]
+        given_attributes = json.loads(sys.argv[2])
+
+        for given_key, given_val in given_attributes.items():
+            new_key = given_key.upper().strip()
+
+            if new_key not in onehost_template:
+                return 0
+            elif onehost_template[new_key].strip() != given_val.strip():
+                return 0
+
+        return 1
+
+def cmd_timeout(error):
+    start_time = time.time()
+
+    while True:
+        if time.time() - start_time > <%= $election_timeout %>:
+            raise Exception(error)
+
+        try:
+            return_code = execute_onehost_cmd()
+            sys.exit(return_code)
+        except:
+            pass
+
+        time.sleep(3)
+
+if __name__ == "__main__":
+    try:
+        sys.exit(execute_onehost_cmd())
+    except Exception as e:
+        cmd_timeout(e)

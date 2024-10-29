@@ -1,0 +1,13 @@
+<%- |
+      String $vlan_name,
+| -%>
+NAME = "<%= $vlan_name %>"
+VN_MAD="bridge"
+PHYDEV="data-bond0"
+BRIDGE="one-br0-<%= $vlan_name %>"
+SECURITY_GROUPS="0"
+
+AR=[
+    TYPE = "ETHER",
+    SIZE = "254"
+]

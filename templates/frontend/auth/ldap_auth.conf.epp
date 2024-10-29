@@ -1,0 +1,22 @@
+<%- |
+  String $ldap_user,
+  String $ldap_user_passwd,
+  String $ldap_server,
+  Integer $ldap_port,
+  String $ldap_search_base,
+| -%>
+server1:
+    :auth_method: :simple
+    :user: "<%= $ldap_user %>"
+    :password: "<%= $ldap_user_passwd %>"
+    :host: "<%= $ldap_server %>"
+    :port: "<%= $ldap_port %>"
+    :base: "<%= $ldap_search_base %>"
+    :user_field: 'sAMAccountName'
+    :mapping_key: GROUP_DN
+    :mapping_filename: "ldap.yaml"
+    :mapping_generate: false
+    :mapping_default: 1
+
+:order:
+    - server1

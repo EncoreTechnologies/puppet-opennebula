@@ -1,0 +1,31 @@
+<%- |
+  String $ldap_groups,
+  String $ldap_file
+| -%>
+import subprocess
+import sys
+import os
+import json
+import yaml
+import pwd
+import grp
+
+if __name__ == "__main__":
+    ldap_groups = json.loads('<%= $ldap_groups %>')
+    result = subprocess.run(["onegroup", "list", "--json"], capture_output=True, text=True)
+
+    if result.returncode == 0:
+        group_list = json.loads(result.stdout)["GROUP_POOL"]["GROUP"]
+        updated_groups = {}
+
+        for group in group_list:
+            group_name = group['NAME']
+
+            if group_name in ldap_groups:
+                updated_groups[ldap_groups[group_name]] = group["ID"]
+
+        if len(updated_groups) != 0:
+            with open('<%= $ldap_file %>', 'w') as file:
+                file.write(yaml.dump(updated_groups))
+    else:
+        raise Exception("error querying for onhv groups: {}".format(result.stderr))

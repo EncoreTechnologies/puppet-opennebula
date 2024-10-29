@@ -1,0 +1,6 @@
+<%- |
+  Hash $attributes,
+| -%>
+<% $attributes.each |$key, $value| { -%>
+<%= $key %>="<%= $value %>"
+<% } -%>

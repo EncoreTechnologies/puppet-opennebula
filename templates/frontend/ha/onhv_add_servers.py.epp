@@ -1,0 +1,96 @@
+<%- |
+      String $ha_servers,
+      String $auth_backup_path,
+      Integer $election_timeout,
+| -%>
+import subprocess
+import sys
+import os
+import json
+import time
+import shutil
+
+TIMEOUT = <%= $election_timeout %>
+
+def get_onhv_servers():
+    result = subprocess.run(["onezone", "show", "0", "--json"], capture_output=True, text=True)
+
+    if result.returncode != 0:
+        raise Exception("error retrieving onezone information: {}".format(result.stderr))
+
+    json_results = json.loads(result.stdout)
+    onhv_servers = []
+
+    if "SERVER" in json_results["ZONE"]["SERVER_POOL"]:
+        if isinstance(json_results["ZONE"]["SERVER_POOL"]["SERVER"], dict):
+            onhv_servers = [json_results["ZONE"]["SERVER_POOL"]["SERVER"]]
+        else:
+            onhv_servers = json_results["ZONE"]["SERVER_POOL"]["SERVER"]
+
+    return onhv_servers
+
+def execute_server_cmd(srv_dict, srv_id):
+    result = subprocess.run(["onezone", "server-add", "0", "--name", "server-{}".format(srv_id), "--rpc", "http://{}:2633/RPC2".format(srv_dict[srv_id])], capture_output=True, text=True)
+
+    if result.returncode != 0:
+        return "error adding new server with id '{}'; {}".format(srv_id, result.stderr)
+
+    return ""
+
+def server_timeout(srv_dict, srv_id):
+    start_time = time.time()
+
+    while True:
+        if time.time() - start_time > TIMEOUT:
+            raise Exception(errMsg)
+
+        if execute_server_cmd(srv_dict, srv_id) == '':
+            break
+
+        time.sleep(3)
+
+def db_backup():
+    result = subprocess.run(["/bin/sh", "/opt/encore/bin/mysql_backup.sh"], capture_output=True, text=True)
+
+    if result.returncode != 0:
+        raise Exception("error generating mysql backup to add to new servers: {}".format(result.stderr))
+
+if __name__ == "__main__":
+    given_servers = json.loads('<%= $ha_servers %>')
+    onhv_servers = get_onhv_servers()
+
+    is_init_load = False
+
+    if len(onhv_servers) == 0:
+        is_init_load = True
+        db_backup()
+        server_error = execute_server_cmd(given_servers, '0')
+
+        if server_error != '':
+            server_timeout(given_servers, '0', server_error)
+
+        onhv_servers = get_onhv_servers()
+
+    new_server_added = False
+
+    for srv_id, srv_ip in given_servers.items():
+        if new_server_added:
+            break
+
+        found = False
+
+        for onhv_srv in onhv_servers:
+            if onhv_srv["ID"] == srv_id:
+                found = True
+
+        if not found:
+            if not is_init_load:
+                db_backup()
+
+            if not os.path.isdir("<%= $auth_backup_path  %>"):
+                shutil.copytree("/var/lib/one/.one", "<%= $auth_backup_path  %>")
+
+            new_server_added = True
+            server_error = execute_server_cmd(given_servers, srv_id)
+            if server_error != '':
+                raise Exception(server_error)

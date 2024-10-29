@@ -1,0 +1,91 @@
+<%- | String $db_user,
+      String $db_passwd,
+      String $db_root_passwd,
+      String $db_svc_user,
+      String $db_svc_passwd,
+      String $log_dir,
+      Integer $server_id,
+| -%>
+#!/bin/bash
+
+set -e
+
+execute_mysql(){
+  mysql -u root -e "$1"
+}
+
+# Log file where initial root temp password is stored
+MYSQL_LOG="/var/log/mysqld.log"
+
+###########################
+# Extracted Params
+###########################
+
+# Use grep to find the line containing the temporary password
+TEMP_PASSWORD_LINE=$(grep 'temporary password' "$MYSQL_LOG")
+
+# Extract the temporary password from the line
+TEMP_PASSWORD=$(echo "$TEMP_PASSWORD_LINE" | awk '{print $NF}')
+
+###########################
+# Default Params
+###########################
+
+# Default user for opennebula database
+DB_USER="${DB_USER:=<%= $db_user %>}"
+
+# Default password for opennebula user
+DB_PASSWD="${DB_PASSWD:=<%= $db_passwd %>}"
+
+# Svc user for opennebula database
+DB_SVC_USER="${DB_SVC_USER:=<%= $db_svc_user %>}"
+
+# Default password for svc user
+DB_SVC_PASSWD="${DB_SVC_PASSWD:=<%= $db_svc_passwd %>}"
+
+# Default password for 'root' user in database
+DB_ROOT_PASSWD="${DB_ROOT_PASSWD:=<%= $db_root_passwd %>}"
+
+# Directory to store logs for script
+LOG_DIR="${LOG_DIR:-<%= $log_dir %>}"
+
+# Derived parameters from above
+LOG="$LOG_DIR/mysql_init.log"
+
+###########################
+# Mysql Execution
+###########################
+
+# Setting temp password in env variable
+export MYSQL_PWD="$(echo $TEMP_PASSWORD)"
+
+# When mysql is first installed, if you try to run any command without setting "--connect-expired-password"
+# flag, we get a permissions error (due to having default password set) so must set this flag for first command
+mysql -u root --connect-expired-password -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$(echo $DB_ROOT_PASSWD)';"
+
+# Update env variable to use password we just set for root user
+export MYSQL_PWD="$(echo $DB_ROOT_PASSWD)"
+
+# Execute commands to create oneadmin user and set privileges to onenebula database
+echo "Flushing privileges..." >> "$LOG"
+execute_mysql "flush privileges;" >> "$LOG"
+
+echo "Creating user $DB_USER..." >> "$LOG"
+execute_mysql "CREATE USER '$(echo $DB_USER)' IDENTIFIED BY '$(echo $DB_PASSWD)';" >> "$LOG"
+echo "Granting user '$DB_USER' ALL PRIVILEGES on opennebula database..." >> "$LOG"
+execute_mysql "GRANT ALL PRIVILEGES ON opennebula.* TO '$(echo $DB_USER)';" >> "$LOG"
+
+echo "Creating user $DB_SVC_USER..." >> "$LOG"
+execute_mysql "CREATE USER '$(echo $DB_SVC_USER)' IDENTIFIED BY '$(echo $DB_SVC_PASSWD)';" >> "$LOG"
+echo "Granting user '$DB_SVC_USER' ALL PRIVILEGES on opennebula database..." >> "$LOG"
+execute_mysql "GRANT ALL PRIVILEGES ON opennebula.* TO '$(echo $DB_SVC_USER)';" >> "$LOG"
+echo "Granting user '$DB_SVC_USER' PROCESS rights..." >> "$LOG"
+execute_mysql "GRANT PROCESS ON *.* TO '$(echo $DB_SVC_USER)'@'%';" >> "$LOG"
+
+<% if $server_id > 0 { -%>
+echo "Creating opennebula database..." >> "$LOG"
+execute_mysql "create database opennebula;" >> "$LOG"
+<% } -%>
+
+echo "Setting isolation level..." >> "$LOG"
+execute_mysql "SET GLOBAL TRANSACTION ISOLATION LEVEL READ COMMITTED;" >> "$LOG"

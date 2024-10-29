@@ -1,0 +1,37 @@
+<%- |
+      String $db_svc_user,
+      String $db_svc_passwd,
+      String $log_dir,
+      String $db_backup_path
+| -%>
+WORK_DIR="<%= $db_backup_path %>"
+OUT_FILE="$WORK_DIR/mysql_$(date +%FT%H%M%z).sql"
+LOG_DIR="${LOG_DIR:-<%= $log_dir %>}"
+LOG="$LOG_DIR/mysql_backup.log"
+RETENTION="${RETENTION:-<%= $db_retention %>}"
+# Ensure at least 3 backups are available.
+if [[ $RETENTION -lt 3 ]]; then
+  RETENTION=3
+fi
+
+## ------------------------------------
+## Create backup dir if not exist.
+## ------------------------------------
+if [[ ! -d $WORK_DIR ]]; then
+  mkdir -p "$WORK_DIR" >> "$LOG" 2>&1
+fi
+
+## ------------------------------------
+## Perform DB backup
+## ------------------------------------
+echo "v------------------------------------------------------------------------------v" >> "$LOG"
+echo "Starting /opt/encore/bin/mysql_backup.sh @ $(date -R)\n" >> "$LOG"
+onedb backup -u <%= $db_svc_user %> -p <%= $db_svc_passwd %> -d opennebula $(echo $OUT_FILE) >> "$LOG" 2>&1
+echo "Complete at @ $(date -R)" >> "$LOG"
+echo "^------------------------------------------------------------------------------^" >> "$LOG"
+gzip --best $OUT_FILE
+
+## ------------------------------------
+## Remove old backups past retention time
+## ------------------------------------
+find "$WORK_DIR" -mtime +"${RETENTION}" -delete
